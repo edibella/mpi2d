@@ -228,7 +228,7 @@ end;if ran(stg,1.2,'Preps Folder to process and creates par files in preperation
         for i=1:length(candidateFolders)
             if(~candidateFolders(i).isdir), continue; end
             dicomFiles = dir([candidateFolders(i).name '/*.dcm']);
-            if(length(dicomFiles) < 3)
+            if(length(dicomFiles) < 39)
                 disp([candidateFolders(i).name 'has less than 39 dicoms.  Skipping']);
                 continue;
             end
