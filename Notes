@@ -1,0 +1,124 @@
+
+
+Spent some time looking around for a notes -like file listing changes from Brian, and dbg as I asked on Dec. 5 and other times,
+but can't seemm to find. 
+Will do diffs and try to follow here what changes from Brian's Dec. 1.3 eversion. 
+Would also like to know how different from the 1. 4 version we "released" in Feb. 2011. 
+
+10/30/11, 
+ouch! so many snags, trying to do P063011, got to slice 3, and shifts length does not match what ranget and framesToSelect give! (128 vs. 140)
+so, what changed? which frames do these shifts go with, the first 128?  I guess this dataset was when working out the pipeline, so maybe that
+changed..   wish had frame number in shifts file! 
+
+
+10/3/11, 
+ok, P072111, tissue curves from deltaSI look reasonable. 
+Blood curves look very different, factor of 2 higher is the 2nd one. It is ungated systole, 10x the low dose. The first should be gated, 10x the low dose. 
+kinetic params similar likely because higher one is thinner and its tissue curves go up slower than the gated it looks like. (still not sure those are with time stamps)
+
+want to look at all aifs.. want to look at all slices, on say subplots, 
+easiest might be to call something like compareFits but that does only one study. 
+This is actually what 4.2 does..  so call 4.2 with different par files? 
+
+what happens if delta_t is larger than in timestamp file?  If is =0.5, but acquiring say .23
+do number of points decrease?  Not sure I'm seeing that. Getting 69 frames gated, 177 ungated. 
+Looking at 4.1...  seems ok.  went from 129 to 177 frames, and bunch skipped, not so many less than .0
+
+PROBLEM was that need to re-run 4.1 on the older (gated) data - so that it would write out the correct deltaSIcurves. 
+This is because now deltaSIcurves (with AIF in the name) are interp. to time stamps and have AIF in them. 
+Unlike 3.4, which writes out:  deltaSIcurves.study20000.slice2.mat
+4.1 takes that and creates: (also reads in the AIF one, and its par file for the frames to skip and timestamps.. 
+no - so why did it need to be re-run?  Oh, just had to run 4.1 on the main (20000 series, not 20099.  Will check this by deleting all deltaSI for 20099.  Yes, verified this. So, could just re-run all non 99 series. 
+deltaSIcurves.study20000.slice2.AIF_20099_2_10.mat. 
+
+Revisit how to handle gated, with or without low dose..  If has low dose need a way to number it. 
+Considering 95 and 96,  with 95 being low dose. 
+Could set up par files pretty easily, but would need to copy over bunch of endo* etc. files to new names. 
+ 
+
+And have to re-run the low dose FIRST, then re-run the higher dose (4.1 only), so it gets it right. 
+Actually not - see above. 
+Still a bit uneasy about this. 
+
+
+
+10/2/11, 
+modified mpi2d.m and mpi_useAlternateAIF.m  so if framesToSelect is not there, just use ranget. Need to test this more.  Seems ok for when creating framesToSelect_AIF.   But changed just before the call to mpi_useAlternateAIF,  have not tested. 
+This was aside, as here building on compareFits_txt.m  so can compare gated to ungated. 
+It reads in text file, and now also AIF (time-stamp corrected, but not shifted, it seems? what is written out by first part of 4.1  (which is different than what 3.4 creates, and I think is labeled differently in deltaSIcurves files.. )  
+Want to also read in tissue curves. 
+And then to have a script call this comparison for all or a lot of the slices for each study.. 
+and dig up polar maps to make polar of each- gated and ungated?  Need to look at matching slices. Part of gated should be systole and part diastole. Recall doing interleaved.  
+
+Odd results with compare.  Need to consider that gated was not run with current 4.1, so it may lack timestamps, and something with scale.  It should be 10x less than new?  But seems only half the size. And tissue curves very similar, but should be higher for 2nd injection. 
+WaiT!  Not comparing first bolus with 2nd, but gated and ungated.  So AIF should be similar. 
+
+maybe go back to reading in curves files, comparing. Then forward again to have timestamps and correct AIF, not saturated one. 
+
+
+
+9/20/11
+ranget, does it use the right shifts file? 
+same with framesToSelect
+
+changed stg 1.2 to add framesToSelect and be 1:nTimes
+
+also added into 3.12 so when it gives up, will write out default circles for endo, epi, bld, so at least pipeline will
+keep going and process everything. In fact, might even skip the guess. 
+
+Fixed up nice script for ungated. Maybe should do same for gated, plus even more - to set up the directories and links. 
+script is called: 
+../Testing/autoROI_sumPx*
+and it is very short, calls ungatedProcessing in Code_1.5
+
+
+
+
+
+
+sat. 8/27/11, 
+wow, really sucking time!  Forgot how 4.1 and 4.2 handle things, and not sure all correct. 
+Pretty much all issues with using a different AIF:
+So, first I notice alignCurves not really used for adjusting bld delay (turns out it is, it shifts the bldcurve, but the value doesn't get used. )
+Then another function is called and it gives a small shift.
+ISSUE:  should use fb from saturated AIF (current version), or from "true" dual bolus AIF?  Makes fb values quite different.  And 4.2 expects to use dual bolus AIF, so fits look very poor. 
+
+2. In par file, choose fixedDelay=99 if all delays estimated in each region. And choose fixedDelay=0 if it just uses single delay (estimated from aligncurves which maybe just does integer part, and then a function to give finer one for mean of all regions. )
+
+3. To do QC and check with 4.2, hard to make sure it does what 4.1 does. Seems shifts always off. Guess could do the aligncurves again there, or could just let delay have a large range and use it..  in that case don't use aligncurves.  Or use it and add it back in at the end before writing out delays!
+So do this - or if fixedDelay==0, then 
+
+4. Getting ktrans=2.5, with using low dose scaled up by 10!  Though very small fv, like 0.  Fits look reasonable. Did we dose wrong?  This is P063011. Or some other issue?  This is series 27000  and doing systole only, so maybe AIF is missing peak from a bunch of frames?  Will have to look. 
+
+Other issues: 
+TimeStampFileAIF never used. 
+Timestamps not getting ranget or skips applied to them (haven't checked numSkip), but seems just read in and applied in 4.1, and then skips applied??
+
+Now making it to apply ranget and framesToSelect, then interp to uniform, then fit. This is done in 4.1, might be nice to move to 3.4? 
+
+For now, left in first function of 4.1. 
+
+"Fixed" 4.2 also to show the same AIF and curves used to fit. Delay?   Note - might have broken things for non-dual bolus, or for when low dose has more frames than the full dose. 
+
+
+added flagTimeStamps in 4.2, 
+and special try/catch in 4.1, so when not shifting, indices are ok..  should revisit this, at least put in good error messages. 
+
+
+Instructions:
+1. Have ungated or all recons in ReconData, and run stg=1.2, this creates par files.
+
+2. Create (hard-code path and series numbers)  from template autoROI_sumP063011_latest.m  (in /v/raid1/ed/src/matlab/Testing
+and run it, writes out framesToSelect in a file. 
+
+3. Modify (again,  series/slice, and ranget) from template sys_dias_modifyParFile.m   (in /v/raid1/ed/MRIdata/Cardiac/Verio/P063011/Processing
+Note - this would be pretty easy to combine 2 and 3. 
+This modifies par file to add in framesToSelect, and modify ranget and seriesAIF
+
+4. Modify Auto_all_ForDualBolus (again, first_series), template in Code_1.5_Aug2011  
+Note - could call it from #3 and pass first_series. 
+This runs registration and seg. etc., for all slices of the ungated series.  (could use old Auto_all which does all par files. Suggest not using 6.1 as it can hang on a keyboard)
+
+5. For each study - Run 3.11 and modify segmentation and registration and save
+		  -  Re-run 0.23, 3.2, 3.4, 4.1  to process for real.
+ 	     	  -  Use stage 4.2 to assess quality, especially if subtracting off reasonable frames so starts at zero. 
