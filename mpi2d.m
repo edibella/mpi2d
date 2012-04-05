@@ -511,7 +511,7 @@ end;if ran(stg,0.23,'applies shifts');
             cinemri1(:,:,t) = temp;
         end
     else
-        cd(infile);
+        %cd(infile);
         dicomfiles = dir([infile '*.dcm']);
         clear cinemri1
         % BETTER to take the pains to get recons the size desired... 
@@ -522,21 +522,61 @@ end;if ran(stg,0.23,'applies shifts');
 %             shifts=shifts(2:end,:); % drop first shifts
 %         end
        % for j=1:length(shifts)
+       
+       
+       
+       
+       % if only shiftsMAN exists, do as previous, just apply shifts,
+        % ignore actualFrameNumbers.  EVRD 4/5/12
+        
+        % if shifts exists, the use actualFrameNumbers and apply only those
+        % shifts, so will get a smaller (or same size) cinemri written out.
+        %
+        
+        % Consider - user alters ranget and then runs 0.23.  What should
+        % happen?  Same as 2.8, if a subset, just use that. If extra
+        % frames, use nearest and alert user to do some manual shifts.. 
+        
+        % More 
+        
         counter=1;
-     
         if prod(size(framesToSelect))==0  % trying this EVRD 10/30/11
             framesToSelect=ranget;
         end
         for j=framesToSelect  %ranget    % EVRD 4/26/11, to crop to ranget. Assume subset of shifts. 
             if (j <=max(ranget)) && (j >=min(ranget))
-                temp = mpi_upsampleImages(dicomread(dicomfiles(j).name));
-               temp = circshift(temp,shifts(counter,:));
-               cinemri1(:,:,counter) = temp(rangex, rangey);
+                temp = mpi_upsampleImages(dicomread(strcat(infile,dicomfiles(j).name)));
+                mycine(:,:,counter) = temp;  % see note just below(rangex, rangey);
+                actualFrameNumbers(counter)=j;
                 counter=counter+1;
             end
         end
+        
+        firstShift=1;
+        if (exist(['Output/shiftsMAN.study',num2str(seriesNum),'.slice',num2str(sliceNum),'.txt'])) && ~(exist(['Output/shifts.study',num2str(seriesNum),'.slice',num2str(sliceNum),'.txt']))
+            shifts=load(['Output/shiftsMAN.study',num2str(seriesNum),'.slice',num2str(sliceNum),'.txt'])
+            counter=1;
+            if prod(size(framesToSelect))==0  % trying this EVRD 10/30/11
+                framesToSelect=ranget;
+            end
+            for j=framesToSelect  %ranget    % EVRD 4/26/11, to crop to ranget. Assume subset of shifts. 
+                if (j <=max(ranget)) && (j >=min(ranget))
+                 temp = circshift(mycine(:,:,counter),shifts(counter,1:2));
+                 cinemri1(:,:,counter) = temp(rangex, rangey);
+                 counter=counter+1;
+                end
+            end
+        else
+        % make below a function, so can call it from other registration stages
+            [shifts, original_shifts firstShift]=handle_shifts(seriesNum, sliceNum, rangex, rangey, actualFrameNumbers);
+            for t=1:size(shifts,1)
+              temp = circshift(mycine(:,:,t),shifts(t,1:2));  %EVRD 3/30/12
+              cinemri1(:,:,t) = temp(rangex, rangey);
+            end
+        end
     end
-    cd(myprocessingDir);
+   % cd(myprocessingDir);
+    disp('Saving cinemri file from 0.23');
     save(['Output/cinemri1.study' num2str(seriesNum) '.slice' num2str(sliceNum) '.mat'],'cinemri1');
         
     
@@ -1383,6 +1423,10 @@ disp('Retrieving images and upsampling...');
                 HeaderInfo = dicominfo([infile dicoms(j).name]);
                 mytime(counter) = str2num(HeaderInfo.AcquisitionTime);
                 mycine(:,:,counter) = temp;  % see note just below(rangex, rangey);
+                actualFrameNumbers(counter)=j;
+                 % actual frame numbers using in mycine, intersection of
+        % framesToSelect and ranget, guess framesToSkip no longer used
+        % EVRD 3/20/12
                 counter=counter+1;
             end
           end
@@ -1392,11 +1436,13 @@ disp('Retrieving images and upsampling...');
                 HeaderInfo = dicominfo([infile dicoms(j).name]);
                 mytime(counter) = str2num(HeaderInfo.AcquisitionTime);
                 mycine(:,:,counter) = temp;  % note need outside crops for Neighboring... (rangex, rangey);
+                actualFrameNumbers(counter)=j;
                 counter=counter+1;
              end
         end
         [mytime, IX] = sort(mytime); % should we flag if any out of order??
         mycine = mycine(:,:,IX);
+        
         
  
 %         for t=1:length(dicoms)
@@ -1419,25 +1465,105 @@ disp('Retrieving images and upsampling...');
             else
                 referenceFrame = size(mycine,3);
             end
-        end
+         end
     end
     
-    %x = load(['timeStampSer' num2str(seriesNum) '.mat']);
-    x = load(timeStampFile);  %EVRD 8/11
-    timestamps = x.timeStamp;
-    if(length(timestamps) ~= size(mycine,3))
-        timestamps = timestamps(min(ranget):end);
-        if(length(timestamps) ~= size(mycine,3))
-            timestamps = x.timeStamp(ranget);
-            if(length(timestamps) ~= size(mycine,3))
-                disp('Houston, we have a timestamp misalignment problem - can skip, doesnt use in 2.8');
-                %keyboard;
-            end
-        end
-    end
+%     %x = load(['timeStampSer' num2str(seriesNum) '.mat']);
+%     x = load(timeStampFile);  %EVRD 8/11
+%     timestamps = x.timeStamp;
+%     if(length(timestamps) ~= size(mycine,3))
+%         timestamps = timestamps(min(ranget):end);
+%         if(length(timestamps) ~= size(mycine,3))
+%             timestamps = x.timeStamp(ranget);
+%             if(length(timestamps) ~= size(mycine,3))
+%                 disp('Houston, we have a timestamp misalignment problem - can skip, doesnt use in 2.8');
+%                 %keyboard;
+%             end
+%         end
+%     end
     
-	shifts_out = NeighboringTemporalSmoothingRegistration(mycine, rangex, rangey, 10, timestamps); % doesn't use timestamps
- 
+    
+    
+    % handle old shifts file are shiftsMAN, newer are shifts. Or leave the
+    % MAN in the name??
+    % if no shifts file - shift and write out. 
+    % if shiftsMAN only, tack on numbers of 3rd column (big ASSUMPTION!)
+    % and save as shifts. 
+    % if shifts only, use it
+    firstShift=1;  % just used for final case... 
+    if ~(exist(['Output/shiftsMAN.study',num2str(seriesNum),'.slice',num2str(sliceNum),'.txt'])) && ~(exist(['Output/shifts.study',num2str(seriesNum),'.slice',num2str(sliceNum),'.txt']))
+        shifts_out = NeighboringTemporalSmoothingRegistration(mycine, rangex, rangey, 10, timestamps); % doesn't use timestamps
+        shifts=[shifts_out'; actualFrameNumbers]';
+    else
+        
+        % make below a function, so can call it from other registration stages
+        [shifts, original_shifts firstShift]=handle_shifts(seriesNum, sliceNum, rangex, rangey, actualFrameNumbers);
+    end
+
+    % think about can this be used in 0.23.. 
+    
+        % check if the required shifts are present for these frames. That
+%         % is, compare column 3. 
+%       if exist(['Output/shiftsMAN.study',num2str(seriesNum),'.slice',num2str(sliceNum),'.txt']) && ~(exist(['Output/shifts.study',num2str(seriesNum),'.slice',num2str(sliceNum),'.txt']))
+%             shifts=load(['Output/shiftsMAN.study',num2str(seriesNum),'.slice',num2str(sliceNum),'.txt'])
+%        % this is older shifts file. Assume that
+%         %ranget and framesToSelect have not been altered, so apply
+%         % Might want to delete shiftsMAN but leaving for now... 
+%            shifts=[shifts'; actualFrameNumbers]';  % then write out to shifts, below
+%       else 
+%         shifts=load(['Output/shifts.study',num2str(seriesNum),'.slice',num2str(sliceNum),'.txt']);
+%         original_shifts=shifts;
+%         % figure out largest shifts matrix could be number of frames:
+%         %shifts_withExtraLines=[zeros(size(shifts,1),size(shifts,2),4*size(shifts,3));
+%         
+%         for m=1:length(actualFrameNumbers)  %size(shifts,1)
+%            indx=find(shifts(:,3)==actualFrameNumbers(m))
+%            if prod(size(indx))~=0     %exist('indx')
+%                if firstShift
+%                    shifts_tmp=shifts(indx,:);
+%                    firstShift=0;
+%                else
+%                    shifts_tmp=[shifts_tmp; shifts(indx,:)];
+%                end
+%            else
+%               %disp('PROBLEM, CANNOT find shifts for some of the new time frames ')
+%               % Now giving this a try,  find closest Frame that has known shifts:
+%               tmpVec=actualFrameNumbers(m)-shifts(:,3);
+%               [minmm indx_closest]=min(abs(tmpVec))
+%               if firstShift
+%                    shifts_tmp=shifts(indx_closest,:); 
+%                    shifts_tmp(end,3)=actualFrameNumbers(m);
+%                    
+%                    if m==1
+%                        new_original_shifts(m,:)=shifts_tmp(end,:);
+%                    else
+%                        new_original_shifts=original_shifts(1:m-1,:);
+%                        new_original_shifts(m,:)=shifts_tmp(end,:);
+%                    end
+%                    nrows=size(original_shifts,1);
+%                    new_original_shifts(m+1:nrows+1,:)=original_shifts(m:end,:);
+%                    original_shifts=new_original_shifts;
+%                    firstShift=0;
+%               else
+%                    shifts_tmp=[shifts_tmp; shifts(indx_closest,:)];
+%                    shifts_tmp(end,3)=actualFrameNumbers(m);
+%                    
+%                    new_original_shifts=original_shifts(1:m-1,:);
+%                    new_original_shifts(m,:)=shifts_tmp(end,:);
+%                    nrows=size(original_shifts,1);
+%                    new_original_shifts(m+1:nrows+1,:)=original_shifts(m:end,:);
+%                    original_shifts=new_original_shifts;
+%                    
+%               end
+%            end
+%         end 
+%         %keyboard
+%         shifts=shifts_tmp;  
+%      end
+%     end
+%     
+	
+     
     if(legacy)
         %nate doesn't choose a rangex that's narrow enough for most
         %registration algorithms.  We must change it so that the algorithm
@@ -1449,8 +1575,8 @@ disp('Retrieving images and upsampling...');
         mycine = cinemri1;
     end
     clear cinemri1
-    for t=1:length(shifts_out)
-        temp = circshift(mycine(:,:,t),shifts_out(t,:));
+    for t=1:size(shifts,1)
+        temp = circshift(mycine(:,:,t),shifts(t,1:2));  %EVRD 3/30/12
         if(legacy)
             cinemri1(:,:,t) = temp(:, :);
         else
@@ -1459,16 +1585,23 @@ disp('Retrieving images and upsampling...');
     end
     disp('Saving cinemri file');
     save(['Output/cinemri1.study' int2str(seriesNum) '.slice' int2str(sliceNum) '.mat'],'cinemri1');
+    
+    
     disp('Saving shift file');
-    fid = fopen(strcat(outpath,'shiftsMAN.study',int2str(seriesNum),'.slice',int2str(sliceNum),'.txt'),'w');
-    for t=1:length(shifts_out)
-        fprintf(fid,'%f	%f\n',shifts_out(t,:));
+    if firstShift==0
+        shifts=original_shifts;  % just for writing out, not to lose any frames. Note was already applied above (as a subset if say reduced ranget)
+    end   % Want to save all the shifts we might have, even if not being used, so
+    % won't need to regenerate later. 
+    delete(strcat(outpath,'shifts.study',int2str(seriesNum),'.slice',int2str(sliceNum),'.txt'));
+    fid = fopen(strcat(outpath,'shifts.study',int2str(seriesNum),'.slice',int2str(sliceNum),'.txt'),'w');
+    for t=1:size(shifts,1)
+        fprintf(fid,'%f	%f %d\n',shifts(t,:));
     end
     fclose(fid);
 
     figure(seriesNum*10 + 2*sliceNum), subplot(2,2,2), cla, hold on;
-    plot(shifts_out(:,1));
-    plot(shifts_out(:,2)+10,'g');
+    plot(shifts(:,1));
+    plot(shifts(:,2)+10,'g');
     title('Shifts(Bottom:X, Top:Y)');
 %%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
   
@@ -2870,3 +3003,72 @@ function imgnew=intshftCircular(img,sh) %#ok<DEFNU>
         end
 
 return;
+
+
+
+    % make below a function, so can call it from other registration stages
+function [shifts, original_shifts,firstShift]=handle_shifts(seriesNum, sliceNum, rangex, rangey, actualFrameNumbers)
+    % think about can this be used in 0.23.. 
+    
+        % check if the required shifts are present for these frames. That
+        % is, compare column 3. 
+      firstShift=1;
+      if exist(['Output/shiftsMAN.study',num2str(seriesNum),'.slice',num2str(sliceNum),'.txt']) && ~(exist(['Output/shifts.study',num2str(seriesNum),'.slice',num2str(sliceNum),'.txt']))
+            shifts=load(['Output/shiftsMAN.study',num2str(seriesNum),'.slice',num2str(sliceNum),'.txt'])
+       % this is older shifts file. Assume that
+        %ranget and framesToSelect have not been altered, so apply
+        % Might want to delete shiftsMAN but leaving for now... 
+           shifts=[shifts'; actualFrameNumbers]';  % then write out to shifts, below
+           original_shifts=shifts;
+      else 
+        shifts=load(['Output/shifts.study',num2str(seriesNum),'.slice',num2str(sliceNum),'.txt']);
+        original_shifts=shifts;
+        % figure out largest shifts matrix could be number of frames:
+        %shifts_withExtraLines=[zeros(size(shifts,1),size(shifts,2),4*size(shifts,3));
+        
+        for m=1:length(actualFrameNumbers)  %size(shifts,1)
+           indx=find(shifts(:,3)==actualFrameNumbers(m))
+           if prod(size(indx))~=0     %exist('indx')
+               if firstShift
+                   shifts_tmp=shifts(indx,:);
+                   firstShift=0;
+               else
+                   shifts_tmp=[shifts_tmp; shifts(indx,:)];
+               end
+           else
+              %disp('PROBLEM, CANNOT find shifts for some of the new time frames ')
+              % Now giving this a try,  find closest Frame that has known shifts:
+              tmpVec=actualFrameNumbers(m)-shifts(:,3);
+              [minmm indx_closest]=min(abs(tmpVec))
+              if firstShift
+                   shifts_tmp=shifts(indx_closest,:); 
+                   shifts_tmp(end,3)=actualFrameNumbers(m);
+                   
+                   if m==1
+                       new_original_shifts(m,:)=shifts_tmp(end,:);
+                   else
+                       new_original_shifts=original_shifts(1:m-1,:);
+                       new_original_shifts(m,:)=shifts_tmp(end,:);
+                   end
+                   nrows=size(original_shifts,1);
+                   new_original_shifts(m+1:nrows+1,:)=original_shifts(m:end,:);
+                   original_shifts=new_original_shifts;
+                   firstShift=0;
+              else
+                   shifts_tmp=[shifts_tmp; shifts(indx_closest,:)];
+                   shifts_tmp(end,3)=actualFrameNumbers(m);
+                   
+                   new_original_shifts=original_shifts(1:m-1,:);
+                   new_original_shifts(m,:)=shifts_tmp(end,:);
+                   nrows=size(original_shifts,1);
+                   new_original_shifts(m+1:nrows+1,:)=original_shifts(m:end,:);
+                   original_shifts=new_original_shifts;
+                   
+              end
+           end
+        end 
+        %keyboard
+        shifts=shifts_tmp;  
+      end
+return;
+    

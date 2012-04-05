@@ -5,6 +5,27 @@ but can't seemm to find.
 Will do diffs and try to follow here what changes from Brian's Dec. 1.3 eversion. 
 Would also like to know how different from the 1. 4 version we "released" in Feb. 2011. 
 
+4/5/12, 
+More thoughts - altering par file of ranget or framesToSelect, then handles shifts ok, then need to ensure that user
+re-runs 3.2, since have new cine file, and reruns 3.4 and 4.1. 
+How to handle? Just log, so can always figure out what the flows file came from?  
+Or don't worry about - just run again and flows will always reflect most recent.. 
+Or, force calls of 3.4 and 4.1 every time, before manually updating shifts?
+Seems log might be best. 
+
+3/30/12,
+Looked into stg=1.1, as was having crazy results. Seems now we can usually use usb results, they are correctly in folders. 
+But running 1.1 had a part I now commented out that gave the odd results, esp. e.g. P021712
+
+Also updated 1.2, to skip if frames <39, and uploaded to github
+
+And modified 2.8, to handle changing selection of frames. Now: 
+checks if a shiftsMAN - if there, add a 3rd column of shift frame #. This assumes! that .par file has not been altered. 
+If shifts (not MAN) file is there, it just uses it, or a subset of it if the ranget or framesToSelect denote that. 
+
+If no shifts file, runs the auto-shift and writes out shifts file for that. 
+
+
 10/30/11, 
 ouch! so many snags, trying to do P063011, got to slice 3, and shifts length does not match what ranget and framesToSelect give! (128 vs. 140)
 so, what changed? which frames do these shifts go with, the first 128?  I guess this dataset was when working out the pipeline, so maybe that
